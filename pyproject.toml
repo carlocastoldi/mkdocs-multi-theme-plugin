@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "mkdocs-multi-theme-plugin"
+packages = [{include = "mkdocs_multi_theme_plugin"}]
+version = "0.1.0"
+description = "A plugin for MkDocs that injects a theme on specified pages different from the general one"
+authors = ["Carlo Castoldi <carlo.castoldi@outlook.com>"]
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+package-mode = true
+
+[tool.poetry.dependencies]
+python = "^3.11"
+mkdocs = "^1.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
