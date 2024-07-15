@@ -1,11 +1,14 @@
 import fnmatch
 import jinja2
 import os
+import mkdocs.commands
+import mkdocs.commands.build
 import mkdocs.utils
 
-from mkdocs.config import base, config_options as c
+from mkdocs.config import base, config_options as c, defaults
 from mkdocs.plugins import BasePlugin, get_plugin_logger
 from mkdocs.structure.files import File, Files
+from mkdocs.structure.nav import Navigation
 from mkdocs.structure.pages import Page
 from mkdocs.theme import Theme
 
@@ -22,8 +25,24 @@ class MultiThemePluginConfig(base.Config):
 
 class MultiThemePlugin(BasePlugin[MultiThemePluginConfig]):
     global_theme: Theme
+    nav: Navigation
 
-    def on_files(self, files: Files, config: base.Config):
+    def on_nav(self, nav: Navigation, config: defaults.MkDocsConfig, files: Files):
+        self.nav = nav
+        return self.nav
+
+    def on_env(self, env: jinja2.Environment, config: defaults.MkDocsConfig, files: Files):
+        # builds the static files for each of the additional theme.
+        # if some resulting files are colliding, the global theme has the precedence
+
+        log.debug("Copying static assets.")
+
+        for additional_theme in self.config.additional_themes:
+            for template in additional_theme.theme.static_templates:
+                mkdocs.commands.build._build_theme_template(template, env, files, config, self.nav)
+        return env
+
+    def on_files(self, files: Files, config: defaults.MkDocsConfig):
         def filter(path: str, theme):
             # '.*' filters dot files/dirs at root level whereas '*/.*' filters nested levels
             patterns = ['.*', '*/.*', '*.py', '*.pyc', '*.html', '*readme*', 'mkdocs_theme.yml']
@@ -61,7 +80,7 @@ class MultiThemePlugin(BasePlugin[MultiThemePluginConfig]):
                 return context
         return context
 
-    def on_post_page(self, output: str, page: Page, config: base.Config) -> str:
+    def on_post_page(self, output: str, page: Page, config: defaults.MkDocsConfig) -> str:
         # if on_files() moves the file to a different destination, we should change
         # the references of the theme to point to the new location
         config.theme = self.global_theme # revert back to config's original theme
