@@ -6,7 +6,7 @@ import mkdocs.commands.build
 import mkdocs.utils
 
 from mkdocs.config import base, config_options as c, defaults
-from mkdocs.plugins import BasePlugin, get_plugin_logger
+from mkdocs.plugins import BasePlugin, CombinedEvent, get_plugin_logger, event_priority
 from mkdocs.structure.files import File, Files
 from mkdocs.structure.nav import Navigation
 from mkdocs.structure.pages import Page
@@ -24,8 +24,25 @@ class MultiThemePluginConfig(base.Config):
     additional_themes = c.ListOfItems(c.SubConfig(_AdditionalTheme), default={})
 
 class MultiThemePlugin(BasePlugin[MultiThemePluginConfig]):
+    envs: dict[str,jinja2.Environment]
     global_theme: Theme
     nav: Navigation
+
+    @event_priority(100)
+    def _on_config_pre_plugins(self, config: defaults.MkDocsConfig) -> defaults.MkDocsConfig | None:
+        self.envs = {additional_theme.theme.name: additional_theme.theme.get_env() for additional_theme in self.config.additional_themes}
+        self.global_theme = config.theme
+        if "mkdocstrings" in config.plugins:
+            config.theme.name = "material" # requires the plugins using this property to fallback to a default theme
+        return config
+
+    @event_priority(-100)
+    def _on_config_post_plugins(self, config: defaults.MkDocsConfig) -> defaults.MkDocsConfig | None:
+        if "mkdocstrings" in config.plugins:
+            config.theme.name = self.global_theme.name
+        return config
+
+    on_config = CombinedEvent(_on_config_pre_plugins, _on_config_post_plugins)
 
     def on_nav(self, nav: Navigation, config: defaults.MkDocsConfig, files: Files):
         self.nav = nav
@@ -55,7 +72,6 @@ class MultiThemePlugin(BasePlugin[MultiThemePluginConfig]):
                     return False
             return True
 
-        self.global_theme = config.theme
         for additional_themes in self.config.additional_themes:
             theme = additional_themes.theme
             path_names = jinja2.FileSystemLoader(theme.dirs).list_templates()
@@ -72,13 +88,18 @@ class MultiThemePlugin(BasePlugin[MultiThemePluginConfig]):
                             break
         return files
 
-    def on_page_context(self, context: dict, page: Page, config, nav, **kwargs) -> str:
+    def on_page_context(self, context: dict, page: Page, config: defaults.MkDocsConfig, nav: Navigation, **kwargs) -> str:
         for additional_theme in self.config.additional_themes:
             if page.file.src_uri in [page for page in additional_theme.pages]:
                 config.theme = additional_theme.theme
                 context["config"] = config
                 return context
         return context
+
+    def on_page_template(self, template: jinja2.Template, template_file: str, page: Page, config: defaults.MkDocsConfig, nav: Navigation) -> jinja2.Template:
+        for additional_theme in self.config.additional_themes:
+            if page.file.src_uri in [page for page in additional_theme.pages]:
+                return self.envs[additional_theme.theme.name].get_template(template_file)
 
     def on_post_page(self, output: str, page: Page, config: defaults.MkDocsConfig) -> str:
         # if on_files() moves the file to a different destination, we should change
